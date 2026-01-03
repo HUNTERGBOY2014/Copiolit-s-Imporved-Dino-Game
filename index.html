@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+t<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -492,4 +492,134 @@
         const g = groundSegments[i];
         if (i === 0) ctx.moveTo(g.x, g.y);
         else ctx.lineTo(g.x, g.y);
+              }
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+
+    function drawDino() {
+      ctx.fillStyle = "#00ffff";
+      ctx.shadowColor = "#00ffff";
+      ctx.shadowBlur = 10;
+
+      ctx.fillRect(dino.x, dino.y, dino.width, dino.height);
+
+      ctx.shadowBlur = 0;
+    }
+
+    function drawObstacles() {
+      for (const o of obstacles) {
+        ctx.fillStyle = `hsl(${o.hue}, 100%, 60%)`;
+        ctx.shadowColor = ctx.fillStyle;
+        ctx.shadowBlur = 10;
+        ctx.fillRect(o.x, o.y, o.width, o.height);
+        ctx.shadowBlur = 0;
+      }
+    }
+
+    function updateScore(dt) {
+      score += dt * 0.01 * gameSpeed;
+      scoreEl.textContent = formatScore(Math.floor(score));
+
+      if (score > highScore) {
+        highScore = Math.floor(score);
+        highScoreEl.textContent = formatScore(highScore);
+      }
+
+      speedEl.textContent = (gameSpeed / BASE_SPEED).toFixed(1) + "x";
+    }
+
+    // ---------------------------
+    // Main game loop
+    // ---------------------------
+    function loop(timestamp) {
+      if (!gameRunning) return;
+
+      const dt = timestamp - lastTime;
+      lastTime = timestamp;
+
+      gameSpeed = Math.min(MAX_SPEED, BASE_SPEED + score * 0.002);
+
+      updateDino(dt);
+      updateObstacles(dt);
+      updateStars(dt);
+      updateGround();
+      updateScore(dt);
+
+      if (checkCollision()) {
+        endGame();
+        return;
+      }
+
+      clearScreen();
+      drawStars();
+      drawGround();
+      drawObstacles();
+      drawDino();
+
+      requestAnimationFrame(loop);
+    }
+
+    // ---------------------------
+    // Reset & Start & End
+    // ---------------------------
+    function resetGame() {
+      obstacles = [];
+      score = 0;
+      gameSpeed = BASE_SPEED;
+      spawnTimer = 0;
+      nextSpawnTime = 1000;
+
+      dino.y = GROUND_Y - dino.height;
+      dino.vy = 0;
+      dino.isJumping = false;
+      dino.isDucking = false;
+
+      initStars();
+      initGround();
+    }
+
+    function startGame() {
+      overlay.classList.add("hidden");
+      gameRunning = true;
+      gameOver = false;
+
+      resetGame();
+
+      if (musicEnabled && bgm.src) {
+        bgm.currentTime = 0;
+        bgm.play().catch(() => {});
+      }
+
+      lastTime = performance.now();
+      requestAnimationFrame(loop);
+    }
+
+    function endGame() {
+      gameRunning = false;
+      gameOver = true;
+
+      if (sfxHit.src) {
+        sfxHit.currentTime = 0;
+        sfxHit.play().catch(() => {});
+      }
+
+      bgm.pause();
+      bgm.currentTime = 0;
+
+      saveHighScore();
+
+      overlay.classList.remove("hidden");
+      overlay.querySelector("h2").textContent = "GAME OVER";
+    }
+
+    // ---------------------------
+    // Initialize
+    // ---------------------------
+    loadHighScore();
+    initStars();
+    initGround();
+  </script>
+</body>
+</html>
      
