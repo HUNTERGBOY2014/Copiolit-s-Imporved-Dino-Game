@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Retro Neon Dino Runner</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      padding: 0;
+      margin: 0;
+    }
+
+    body {
+      background: radial-gradient(circle at top, #201050 0, #050510 55%, #000000 100%);
+      font-family: "Courier New", monospace;
+      color: #ffffff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      height: 100vh;
+      user-select: none;
+      overflow: hidden;
+    }
+
+    h1 {
+      margin-top: 20px;
+      margin-bottom: 8px;
+      text-shadow: 0 0 8px #ff00ff;
+      letter-spacing: 2px;
+    }
+
+    .hint {
+      font-size: 12px;
+      opacity: 0.8;
+      margin-bottom: 8px;
+      text-align: center;
+    }
+
+    #game-container {
+      position: relative;
+      margin-top: 10px;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow:
+        0 0 10px #ff00ff,
+        0 0 25px #00ffff,
+        0 0 40px rgba(0, 255, 255, 0.4);
+    }
+
+    canvas {
+      background: linear-gradient(#000322 0, #020814 40%, #10050b 100%);
+      display: block;
+    }
+
+    #hud {
+      margin-top: 10px;
+      display: flex;
+      justify-content: space-between;
+      width: 600px;
+      max-width: 100%;
+      font-size: 14px;
+      text-shadow: 0 0 4px #00ffff;
+    }
+
+    .hud-left span,
+    .hud-right span {
+      margin-right: 14px;
+    }
+
+    #overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      background: linear-gradient(
+        135deg,
+        rgba(10, 0, 30, 0.92),
+        rgba(0, 30, 40, 0.92)
+      );
+      color: #ffffff;
+      text-align: center;
+      z-index: 2;
+    }
+
+    #overlay.hidden {
+      display: none;
+    }
+
+    #overlay h2 {
+      margin-bottom: 10px;
+      text-shadow:
+        0 0 8px #ff00ff,
+        0 0 16px #00ffff;
+    }
+
+    #overlay p {
+      margin: 4px 0;
+      font-size: 13px;
+      opacity: 0.9;
+    }
+
+    #start-btn {
+      margin-top: 12px;
+      padding: 6px 16px;
+      background: #ff00ff;
+      border: none;
+      color: #fff;
+      cursor: pointer;
+      border-radius: 4px;
+      font-weight: bold;
+      text-shadow: 0 0 4px #000;
+      box-shadow: 0 0 8px #ff00ff;
+    }
+
+    #start-btn:hover {
+      filter: brightness(1.1);
+    }
+
+    #music-toggle {
+      cursor: pointer;
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <h1>RETRO NEON DINO RUNNER</h1>
+  <div class="hint">
+    Press <b>Space</b> or <b>Up</b> to jump, <b>Down</b> to duck.  
+    Avoid the neon cacti!
+  </div>
+
+  <div id="game-container">
+    <canvas id="game" width="640" height="240"></canvas>
+    <div id="overlay">
+      <h2>INSERT COIN</h2>
+      <p>Press <b>Space</b> or click <b>START</b> to play.</p>
+      <p>Jump over obstacles, survive as long as you can.</p>
+      <button id="start-btn">START</button>
+      <p style="margin-top:10px;font-size:11px;">
+        <span id="music-toggle">[Music: OFF]</span>
+      </p>
+    </div>
+  </div>
+
+  <div id="hud">
+    <div class="hud-left">
+      <span>Score: <span id="score">00000</span></span>
+      <span>Hi: <span id="high-score">00000</span></span>
+    </div>
+    <div class="hud-right">
+      <span>Speed: <span id="speed">1.0x</span></span>
+    </div>
+  </div>
+
+  <!-- Optional: simple audio elements (replace src with your own small .wav/.mp3) -->
+  <audio id="sfx-jump" src=""></audio>
+  <audio id="sfx-hit" src=""></audio>
+  <audio id="bgm" src="" loop></audio>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+
+    const overlay = document.getElementById("overlay");
+    const startBtn = document.getElementById("start-btn");
+    const scoreEl = document.getElementById("score");
+    const highScoreEl = document.getElementById("high-score");
+    const speedEl = document.getElementById("speed");
+    const musicToggleEl = document.getElementById("music-toggle");
+
+    const sfxJump = document.getElementById("sfx-jump");
+    const sfxHit = document.getElementById("sfx-hit");
+    const bgm = document.getElementById("bgm");
+
+    // ---------------------------
+    // Game constants
+    // ---------------------------
+    const GRAVITY = 0.7;
+    const JUMP_VELOCITY = -11.5;
+    const DUCK_HEIGHT = 22;
+    const GROUND_Y = canvas.height - 40;
+    const BASE_SPEED = 6;
+    const MAX_SPEED = 14;
+    const SPAWN_INTERVAL_MIN = 700;
+    const SPAWN_INTERVAL_MAX = 1400;
+
+    let keys = {
+      up: false,
+      down: false
+    };
+
+    // Dino state
+    const dino = {
+      x: 60,
+      y: GROUND_Y - 40,
+      width: 32,
+      height: 40,
+      vy: 0,
+      isJumping: false,
+      isDucking: false,
+      animPhase: 0
+    };
+
+    // Obstacles: neon cacti
+    let obstacles = [];
+
+    // Stars and ground segments for background
+    let stars = [];
+    let groundSegments = [];
+
+    // Game loop state
+    let lastTime = 0;
+    let gameSpeed = BASE_SPEED;
+    let score = 0;
+    let highScore = 0;
+    let gameRunning = false;
+    let gameOver = false;
+    let spawnTimer = 0;
+    let nextSpawnTime = 1000;
+    let musicEnabled = false;
+
+    // ---------------------------
+    // Utility functions
+    // ---------------------------
+    function randRange(min, max) {
+      return Math.random() * (max - min) + min;
+    }
+
+    function formatScore(n) {
+      return n.toString().padStart(5, "0");
+    }
+
+    function loadHighScore() {
+      try {
+        const saved = localStorage.getItem("retro_dino_high_score");
+        if (saved) {
+          highScore = parseInt(saved, 10) || 0;
+          highScoreEl.textContent = formatScore(highScore);
+        }
+      } catch (e) {
+        // ignore if unavailable
+      }
+    }
+
+    function saveHighScore() {
+      try {
+        localStorage.setItem("retro_dino_high_score", highScore.toString());
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    // ---------------------------
+    // Input handling
+    // ---------------------------
+    window.addEventListener("keydown", (e) => {
+      if (e.code === "Space" || e.code === "ArrowUp") {
+        e.preventDefault();
+        keys.up = true;
+        if (!gameRunning && !gameOver) {
+          startGame();
+        } else if (!dino.isJumping) {
+          jump();
+        }
+      }
+      if (e.code === "ArrowDown") {
+        e.preventDefault();
+        keys.down = true;
+      }
+    });
+
+    window.addEventListener("keyup", (e) => {
+      if (e.code === "Space" || e.code === "ArrowUp") {
+        keys.up = false;
+      }
+      if (e.code === "ArrowDown") {
+        keys.down = false;
+      }
+    });
+
+    startBtn.addEventListener("click", () => {
+      if (!gameRunning) {
+        startGame();
+      }
+    });
+
+    musicToggleEl.addEventListener("click", () => {
+      musicEnabled = !musicEnabled;
+      if (musicEnabled) {
+        musicToggleEl.textContent = "[Music: ON]";
+        if (bgm.src) bgm.play().catch(() => {});
+      } else {
+        musicToggleEl.textContent = "[Music: OFF]";
+        bgm.pause();
+        bgm.currentTime = 0;
+      }
+    });
+
+    // ---------------------------
+    // Dino logic
+    // ---------------------------
+    function jump() {
+      dino.isJumping = true;
+      dino.vy = JUMP_VELOCITY;
+      if (sfxJump.src) {
+        sfxJump.currentTime = 0;
+        sfxJump.play().catch(() => {});
+      }
+    }
+
+    function updateDino(dt) {
+      // Ducking only when on ground
+      if (!dino.isJumping && keys.down) {
+        dino.isDucking = true;
+      } else {
+        dino.isDucking = false;
+      }
+
+      const targetHeight = dino.isDucking ? DUCK_HEIGHT : 40;
+      if (dino.height !== targetHeight) {
+        dino.height += (targetHeight - dino.height) * 0.2;
+      }
+
+      // Jump physics
+      if (dino.isJumping) {
+        dino.vy += GRAVITY;
+        dino.y += dino.vy;
+
+        if (dino.y >= GROUND_Y - dino.height) {
+          dino.y = GROUND_Y - dino.height;
+          dino.vy = 0;
+          dino.isJumping = false;
+        }
+      } else {
+        dino.y = GROUND_Y - dino.height;
+      }
+
+      // Running animation phase
+      dino.animPhase += dt * 0.02 * gameSpeed;
+    }
+
+    // ---------------------------
+    // Obstacle logic
+    // ---------------------------
+    function spawnObstacle() {
+      const heightVariants = [30, 40, 50];
+      const wVariants = [14, 18, 22];
+
+      const height = heightVariants[Math.floor(Math.random() * heightVariants.length)];
+      const width = wVariants[Math.floor(Math.random() * wVariants.length)];
+
+      obstacles.push({
+        x: canvas.width + 10,
+        y: GROUND_Y - height,
+        width,
+        height,
+        hue: randRange(140, 220)
+      });
+
+      nextSpawnTime = randRange(SPAWN_INTERVAL_MIN, SPAWN_INTERVAL_MAX);
+      spawnTimer = 0;
+    }
+
+    function updateObstacles(dt) {
+      const speed = gameSpeed;
+      for (let i = obstacles.length - 1; i >= 0; i--) {
+        const o = obstacles[i];
+        o.x -= speed;
+
+        if (o.x + o.width < -20) {
+          obstacles.splice(i, 1);
+        }
+      }
+
+      spawnTimer += dt;
+      if (spawnTimer > nextSpawnTime) {
+        spawnObstacle();
+      }
+    }
+
+    function checkCollision() {
+      for (const o of obstacles) {
+        const padding = 4;
+        const dinoLeft = dino.x + padding;
+        const dinoRight = dino.x + dino.width - padding;
+        const dinoTop = dino.y + padding;
+        const dinoBottom = dino.y + dino.height - padding;
+
+        const objLeft = o.x + padding;
+        const objRight = o.x + o.width - padding;
+        const objTop = o.y + padding;
+        const objBottom = o.y + o.height - padding;
+
+        if (
+          dinoRight > objLeft &&
+          dinoLeft < objRight &&
+          dinoBottom > objTop &&
+          dinoTop < objBottom
+        ) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    // ---------------------------
+    // Background: stars and ground
+    // ---------------------------
+    function initStars() {
+      stars = [];
+      for (let i = 0; i < 40; i++) {
+        stars.push({
+          x: Math.random() * canvas.width,
+          y: Math.random() * 90,
+          size: Math.random() * 1.4 + 0.6,
+          speed: randRange(0.1, 0.6),
+          alpha: randRange(0.4, 1)
+        });
+      }
+    }
+
+    function updateStars(dt) {
+      for (const s of stars) {
+        s.x -= s.speed * (gameSpeed / BASE_SPEED);
+        if (s.x < -2) {
+          s.x = canvas.width + Math.random() * 40;
+          s.y = Math.random() * 90;
+          s.size = Math.random() * 1.4 + 0.6;
+          s.alpha = randRange(0.4, 1);
+        }
+      }
+    }
+
+    function initGround() {
+      groundSegments = [];
+      const step = 16;
+      for (let x = 0; x < canvas.width + step; x += step) {
+        groundSegments.push({
+          x,
+          y: GROUND_Y + 4 + Math.sin(x * 0.06) * 1.5
+        });
+      }
+    }
+
+    function updateGround() {
+      const step = 16;
+      for (const g of groundSegments) {
+        g.x -= gameSpeed;
+      }
+
+      // Recycle segments
+      while (groundSegments.length && groundSegments[0].x < -step) {
+        groundSegments.shift();
+      }
+      const last = groundSegments[groundSegments.length - 1];
+      while (last && last.x < canvas.width + step) {
+        const nextX = last.x + step;
+        groundSegments.push({
+          x: nextX,
+          y: GROUND_Y + 4 + Math.sin(nextX * 0.06) * 1.5
+        });
+      }
+    }
+
+    // ---------------------------
+    // Drawing routines
+    // ---------------------------
+    function clearScreen() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    function drawStars() {
+      for (const s of stars) {
+        ctx.globalAlpha = s.alpha;
+        ctx.fillStyle = "#88faff";
+        ctx.fillRect(s.x, s.y, s.size, s.size);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function drawGround() {
+      ctx.strokeStyle = "#ff00ff";
+      ctx.lineWidth = 2;
+      ctx.shadowColor = "#ff00ff";
+      ctx.shadowBlur = 8;
+
+      ctx.beginPath();
+      for (let i = 0; i < groundSegments.length; i++) {
+        const g = groundSegments[i];
+        if (i === 0) ctx.moveTo(g.x, g.y);
+        else ctx.lineTo(g.x, g.y);
+     
